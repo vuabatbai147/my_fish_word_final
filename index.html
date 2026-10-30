@@ -507,7 +507,8 @@ const BAIT=Object.fromEntries(BAITS.map(b=>[b.id,b]));
 const RODS=[
  {name:'Cần tre',p:1,cost:0,desc:'Cần khởi đầu, nhẹ tay.',col:'#8a5a2e'},
  {name:'Cần sợi carbon',p:1.5,cost:1500,desc:'Kéo khỏe, cá to cắn nhiều hơn.',col:'#2b3442'},
- {name:'Cần titan',p:2.1,cost:5000,desc:'Hạ gục cá lớn rất nhanh.',col:'#8fa3bd'}
+ {name:'Cần titan',p:2.1,cost:5000,desc:'Hạ gục cá lớn rất nhanh.',col:'#8fa3bd'},
+ {name:'Cần Hỏa Long',p:2.8,cost:12000,desc:'Cần Hỏa Long với hiệu ứng cong cần và dây vàng.',col:'#ffb43d',frames:'can_hoa_long'}
 ];
 const TANKS=[
  {name:'Bể của tôi',cap:10,cost:0,theme:{w:['#5fd3ee','#0f78a8'],s:['#f1d9a0','#d6b574'],back:'#0b5f8a'},sample:{d:['cay_thuy_sinh','da_cuoi','san_ho_quat'],f:['vang','neon','koi']}},
@@ -560,7 +561,7 @@ function fishValue(sp,w){const f=clamp((w-sp.w[0])/(sp.w[1]-sp.w[0]),0,1);return
 function mkFish(id,w){const sp=SP[id];if(w==null)w=(sp.w[0]+sp.w[1])/2;const {v,stars}=fishValue(sp,w);return{u:uid(),id,w,v,stars}}
 function mkQuest(ex){const o=QUEST_T.filter(q=>!ex.includes(q.k));const T=pick(o.length?o:QUEST_T);const n=randi(T.min,T.max);return{k:T.k,n,p:0,text:T.t(n),c:T.c(n),g:T.g(n)}}
 function newState(){
-  const s={v:1,name:'FishLover',coins:2000,gems:30,level:1,xp:0,rods:[0],rod:0,bait:'worm',baits:{shrimp:3,gold:1},
+  const s={v:1,name:'FishLover',coins:99999999,gems:99999,level:1,xp:0,rods:[0],rod:0,bait:'worm',baits:{shrimp:3,gold:1},
     tanks:TANKS.map((T,i)=>({unlocked:i===0,lv:1,fish:[],decor:[],filter:null,light:null})),active:0,bag:[],decorInv:[],equip:['loc_nuoc','den_led'],
     disc:{},stats:{caught:0,sold:0},quests:[],market:null,chests:0,mailDay:'',ads:{day:'',n:0,g:0},sound:true,loc:'ho',welcome:false};
   const t=s.tanks[0];t.fish=[mkFish('vang',0.32),mkFish('vang',0.21),mkFish('thantien',0.2),mkFish('baymau',0.08),mkFish('neon',0.05)];
@@ -573,6 +574,9 @@ function newState(){
 let S;
 try{const raw=localStorage.getItem(SAVE_KEY);S=raw?JSON.parse(raw):null}catch(e){S=null}
 if(!S||S.v!==1)S=newState();
+/* TEST BUILD: top up existing local saves without resetting progress. */
+S.coins=Math.max(Number(S.coins)||0,99999999);
+S.gems=Math.max(Number(S.gems)||0,99999);
 let saveT=0;const save=()=>{try{localStorage.setItem(SAVE_KEY,JSON.stringify(S))}catch(e){}};const dirty=()=>{saveT=0.5};
 const AT=()=>S.tanks[S.active];
 const capOf=(i=S.active)=>TANKS[i].cap+(S.tanks[i].lv-1)*LV_STEP;
@@ -1009,6 +1013,19 @@ const fishCv=$('#fishCv');
 const fishingBackground=new Image();
 fishingBackground.addEventListener('error',()=>console.error('Failed to load fishing background:',fishingBackground.src));
 fishingBackground.src='assets/background_map/background_bien_nhiet_doi.png';
+// Sprite animations loaded once and reused by all canvases.
+const SWIM_FRAMES=Array.from({length:8},(_,i)=>{const im=new Image();im.src=`assets/frame_fish/ca_he/fish_${String(i).padStart(2,'0')}.png`;return im});
+const FIRE_ROD_FRAMES=Array.from({length:13},(_,i)=>{const im=new Image();im.src=`assets/frame_can/can_hoa_long/rod_${String(i).padStart(2,'0')}.png`;return im});
+const spriteReady=im=>im&&im.complete&&im.naturalWidth>0;
+function paintClownSwim(c,L,t){
+ const frame=SWIM_FRAMES[Math.floor(t*11)%SWIM_FRAMES.length];
+ if(!spriteReady(frame))return false;
+ // Keep sprite centered and aspect ratio intact; frame images include transparency.
+ const dw=L*1.65,dh=dw*frame.naturalHeight/frame.naturalWidth;
+ c.drawImage(frame,-dw/2,-dh/2,dw,dh);return true;
+}
+const FIRE_ROD_TIPS=[{x:.973,y:.034},{x:.972,y:.037},{x:.974,y:.047},{x:.977,y:.054},{x:.98,y:.066},{x:.983,y:.08},{x:.985,y:.095},{x:.986,y:.11},{x:.988,y:.13},{x:.99,y:.15},{x:.99,y:.18},{x:.991,y:.21},{x:.992,y:.24}];
+let rodBendSmoothed=0;
 const F={phase:'idle',t:0,hold:false,ten:20,stam:100,slack:0,surge:0,nextSurge:2,sp:null,w:0,biteAt:3,castT:0,tick:0,msgCls:'',bx:640,by:470,fx:640,fy:500};
 const shadows=Array.from({length:5},(_,i)=>({x:rand(100,1200),y:rand(430,690),v:rand(14,30)*(i%2?1:-1),s:rand(30,56)}));
 function weatherNow(){const k=Math.floor(Date.now()/600000);const r=(k*9301+49297)%233280/233280;const id=r<0.5?'sun':r<0.8?'cloud':'rain';return{id,temp:24+Math.floor(r*8),name:{sun:'Nắng',cloud:'Nhiều mây',rain:'Mưa'}[id]}}
@@ -1096,6 +1113,27 @@ function drawFishing(dt){
     if(F.phase==='bite'){const yy=bobY-36-Math.abs(Math.sin(T*8))*8;c.font='900 46px "Baloo 2",sans-serif';c.textAlign='center';c.lineWidth=6;c.strokeStyle='#0b3550';c.strokeText('!',bobX,yy);c.fillStyle='#ffd23f';c.fillText('!',bobX,yy)}}
   splashes.filter(s=>s.cv==='fish').forEach(s=>{s.r+=dt*44;s.life-=dt*0.8;c.strokeStyle=`rgba(255,255,255,${Math.max(0,s.life)*0.85})`;c.lineWidth=2.5;c.beginPath();c.ellipse(s.x,s.y,s.r,s.r*0.32,0,0,TAU);c.stroke()});
   for(let i=splashes.length-1;i>=0;i--)if(splashes[i].life<=0)splashes.splice(i,1);
+  // Rod animation: Hỏa Long uses the 13 supplied frames, other rods retain original drawing.
+  const useFireRod=S.rod===3;
+  const pull=F.phase==='reel'?F.ten/100:F.phase==='bite'?0.28:0;
+  const bendTarget=useFireRod?Math.max(0,Math.min(12,Math.round(pull*12+(F.surge>0?2:0)))):0;
+  rodBendSmoothed+=(bendTarget-rodBendSmoothed)*Math.min(1,dt*10);
+  const frameIndex=Math.max(0,Math.min(12,Math.round(rodBendSmoothed)));
+  const rodImage=FIRE_ROD_FRAMES[frameIndex];
+  if(useFireRod&&spriteReady(rodImage)){
+    // The rod sprite is positioned in the bottom-left of the 1280x800 fishing canvas.
+    const rw=640,rh=rw*rodImage.naturalHeight/rodImage.naturalWidth;
+    const rx=35,ry=170;
+    const tipUV=FIRE_ROD_TIPS[frameIndex];
+    const tip={x:rx+rw*tipUV.x,y:ry+rh*tipUV.y};
+    const showLine=F.phase!=='idle';
+    const lineX=showLine?bobX:tip.x+6,lineY=showLine?bobY:tip.y+125;
+    const sag=F.phase==='reel'?(1-F.ten/100)*85:F.phase==='cast'?20:40;
+    c.save();c.strokeStyle='#ffb43d';c.shadowColor='rgba(255,145,25,.4)';c.shadowBlur=3;c.lineWidth=2.1;
+    c.beginPath();c.moveTo(tip.x,tip.y);c.quadraticCurveTo((tip.x+lineX)/2,(tip.y+lineY)/2+sag,lineX,lineY);c.stroke();c.restore();
+    if(!showLine){c.fillStyle='#ff4830';c.beginPath();c.arc(lineX,lineY+3,7,0,TAU);c.fill()}
+    c.drawImage(rodImage,rx,ry,rw,rh);
+  }else{
   // rod (bottom-left, first person)
   const pull=F.phase==='reel'?F.ten/100:F.phase==='bite'?0.3:0;
   const tip={x:lerp(tipB.x,tx,0.1*pull),y:lerp(tipB.y,ty,0.16*pull)+pull*24};
@@ -1110,6 +1148,7 @@ function drawFishing(dt){
   [0.35,0.5,0.63,0.75,0.86,0.95].forEach(t=>{const a=P(t);c.strokeStyle='#c9d2dc';c.lineWidth=2.5;c.beginPath();c.arc(a.x+6,a.y,5,0,TAU);c.stroke()});
   const rp=P(0.14);c.fillStyle='#3a434d';c.beginPath();c.arc(rp.x+40,rp.y+4,30,0,TAU);c.fill();c.fillStyle='#8a96a4';c.beginPath();c.arc(rp.x+40,rp.y+4,20,0,TAU);c.fill();c.save();c.translate(rp.x+40,rp.y+4);c.rotate(F.hold?T*18:0);c.strokeStyle='#e9eef2';c.lineWidth=5;c.beginPath();c.moveTo(0,0);c.lineTo(22,14);c.stroke();c.restore();
   const hp=P(0.06);c.fillStyle='#f3c9a3';c.beginPath();c.ellipse(hp.x-6,hp.y+20,44,30,-0.5,0,TAU);c.fill();c.fillStyle='#e5b48c';c.beginPath();c.ellipse(hp.x+22,hp.y+2,16,10,-0.9,0,TAU);c.fill();
+  }
   for(let i=drops.length-1;i>=0;i--){const d=drops[i];d.vy+=600*dt;d.x+=d.vx*dt;d.y+=d.vy*dt;d.life-=dt*1.6;if(d.life<=0){drops.splice(i,1);continue}c.fillStyle=`rgba(230,250,255,${d.life})`;c.beginPath();c.arc(d.x,d.y,3,0,TAU);c.fill()}
   if(W.id==='rain'){c.strokeStyle='rgba(220,240,255,.45)';c.lineWidth=1.2;c.beginPath();for(let i=0;i<110;i++){const x=(i*73+T*70)%w,y=(i*131+T*620)%h;c.moveTo(x,y);c.lineTo(x-4,y+16)}c.stroke()}
   if(night){c.fillStyle='rgba(10,20,60,.22)';c.fillRect(0,0,w,h)}
@@ -1176,12 +1215,13 @@ function drawInterior(c,x,y,w,h,ti,dt,o={}){
   const fl=h*0.17;
   if(live&&ti===S.active){syncEnts();ents.forEach(e=>{const sp=SP[e.f.id];e.t+=dt;
       if(e.pause>0)e.pause-=dt;else{const dx=e.tx-e.x,dy=e.ty-e.y,dist=Math.hypot(dx,dy*0.7);if(dist<0.02){e.tx=rand(0.08,0.92);e.ty=rand(0.12,0.68);e.v=rand(0.04,0.1);if(Math.random()<0.3)e.pause=rand(0.5,2)}else{e.x+=dx/dist*e.v*dt;e.y+=dy/dist*e.v*dt*0.7}}
-      const face=(e.tx-e.x)>=0?1:-1;e.flip+=(face-e.flip)*Math.min(1,dt*6);if(Math.random()<dt*0.12)bubbles.push({x:e.x+face*0.03,y:e.y,r:rand(1,2.5)*h/400,v:rand(0.1,0.2),p:0});
+      // All fish assets face LEFT by default: mirror only when swimming RIGHT.
+      const face=(e.tx-e.x)>=0?-1:1;e.flip+=(face-e.flip)*Math.min(1,dt*6);if(Math.random()<dt*0.12)bubbles.push({x:e.x+face*0.03,y:e.y,r:rand(1,2.5)*h/400,v:rand(0.1,0.2),p:0});
       const Lf=fl*sp.size*(0.85+e.z*0.25);const ex=e.x*w+px*(1-e.z)*1.5;e.sx=x+ex;e.sy=y+e.y*h;e.sL=Lf;c.save();c.translate(ex,e.y*h);
       if(e.hl>0){e.hl-=dt;c.strokeStyle=`rgba(255,230,120,${Math.min(1,e.hl)})`;c.lineWidth=3;c.beginPath();c.ellipse(0,0,Lf*0.75,Lf*0.5,0,0,TAU);c.stroke()}
-      c.scale(e.flip,1);c.rotate(Math.sin(e.t*1.3)*0.05);drawFish(c,sp,Lf,e.t*(e.pause>0?0.5:1));c.restore()});
+      c.scale(e.flip,1);c.rotate(Math.sin(e.t*1.3)*0.05);if(!(e.f.id==='he'&&paintClownSwim(c,Lf,e.t*(e.pause>0?0.35:1))))drawFish(c,sp,Lf,e.t*(e.pause>0?0.5:1));c.restore()});
     for(let i=bubbles.length-1;i>=0;i--){const b=bubbles[i];b.y-=b.v*dt;b.p+=dt*3;if(b.y<0.02){bubbles.splice(i,1);continue}const bx=b.x*w+Math.sin(b.p)*3;c.strokeStyle='rgba(255,255,255,.75)';c.lineWidth=1.2;c.beginPath();c.arc(bx,b.y*h,b.r,0,TAU);c.stroke()}}
-  else{const fl2=smp?TANKS[ti].sample.f:t.fish.slice(0,8).map(f=>f.id);fl2.forEach((id,k)=>{const sp=SP[id];c.save();c.translate(w*(0.22+((k*0.31)%0.62)),h*(0.22+((k*0.17)%0.45)));c.scale(k%2?-1:1,1);drawFish(c,sp,fl*sp.size,T+k,{});c.restore()})}
+  else{const fl2=smp?TANKS[ti].sample.f:t.fish.slice(0,8).map(f=>f.id);fl2.forEach((id,k)=>{const sp=SP[id];c.save();c.translate(w*(0.22+((k*0.31)%0.62)),h*(0.22+((k*0.17)%0.45)));c.scale(k%2?-1:1,1);if(!(id==='he'&&paintClownSwim(c,fl*sp.size,T+k)))drawFish(c,sp,fl*sp.size,T+k,{});c.restore()})}
   if(lc){c.fillStyle=`rgba(${lc},.08)`;c.fillRect(0,0,w,h)}
   g=c.createLinearGradient(0,0,w,h);g.addColorStop(0,'rgba(255,255,255,.14)');g.addColorStop(0.28,'rgba(255,255,255,0)');g.addColorStop(0.72,'rgba(255,255,255,0)');g.addColorStop(0.82,'rgba(255,255,255,.08)');c.fillStyle=g;c.fillRect(0,0,w,h);
   if(!smp&&!t.fish.length&&!o.decor){c.fillStyle='rgba(255,255,255,.85)';c.font=`800 ${Math.round(h*0.07)}px Nunito,sans-serif`;c.textAlign='center';c.fillText('Bể đang trống',w/2,h*0.42)}
@@ -1293,8 +1333,10 @@ $('#dSave').onclick=()=>{const t=AT();t.decor=t.decor.map(d=>{const w=dWork.find
 
 /* ============ MARKET (mockup 7) ============ */
 let mkTab='thuong',mkSel=null,sellSel=new Set();
-function genOffers(tab){const pool=tab==='thuong'?SPECIES.filter(s=>s.r===1):tab==='hiem'?SPECIES.filter(s=>s.r===2||s.r===3):SPECIES.filter(s=>s.r>=3);return shuffle(pool.map(s=>s.id)).slice(0,6).map(id=>({id,sold:false}))}
-function ensureMarket(){if(!S.market)S.market={offers:{thuong:genOffers('thuong'),hiem:genOffers('hiem'),sukien:genOffers('sukien')},next:0}}
+function genOffers(tab){const pool=tab==='thuong'?SPECIES.filter(s=>s.r===1):tab==='hiem'?SPECIES.filter(s=>s.r===2||s.r===3):SPECIES.filter(s=>s.r>=3);const ids=shuffle(pool.map(s=>s.id));if(tab==='thuong'){const i=ids.indexOf('he');if(i>=0)ids.splice(i,1);ids.unshift('he')}return ids.slice(0,6).map(id=>({id,sold:false}))}
+function ensureMarket(){if(!S.market)S.market={offers:{thuong:genOffers('thuong'),hiem:genOffers('hiem'),sukien:genOffers('sukien')},next:0};
+/* Ensure clownfish is available even for players with an older saved market. */
+const a=S.market.offers?.thuong;if(Array.isArray(a)&&!a.some(o=>o.id==='he'&&!o.sold)){const idx=a.findIndex(o=>!o.sold);if(idx>=0){a[idx]={id:'he',sold:false};dirty()}}}
 const mPrice=(sp,tab)=>tab==='sukien'?{n:sp.r===4?30:12,cur:'gem'}:{n:Math.round(sp.price*1.4/10)*10,cur:'coin'};
 $('#mkRail').addEventListener('click',e=>{const b=e.target.closest('[data-mk]');if(!b)return;mkTab=b.dataset.mk;mkSel=null;sellSel.clear();sfx('click');renderMarket()});
 function renderMarket(){ensureMarket();$$('#mkRail [data-mk]').forEach(b=>b.classList.toggle('on',b.dataset.mk===mkTab));const G=$('#mkGrid'),L=$('#mkLeft'),R=$('#mkRight');
